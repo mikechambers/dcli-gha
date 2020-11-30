@@ -1,17 +1,15 @@
 language: rust
 sudo: false
 cache: cargo
-
 rust:
-  - stable
+- stable
 script:
-  - cargo build --verbose --release --workspace --manifest-path src/Cargo.toml
-
+- cargo build --verbose --release --workspace --manifest-path src/Cargo.toml
 matrix:
-  # Performance tweak
   fast_finish: true
-
   include:
+  - env: TARGET=x86_64-apple-darwin
+    os: osx
     # Linux
     #- env: TARGET=x86_64-unknown-linux-musl
 
@@ -23,3 +21,15 @@ matrix:
       
     # Windows
     #- env: TARGET=x86_64-pc-windows-gnu
+
+deploy:
+  - provider: releases
+    skip_cleanup: true
+    on:
+      tags: true
+      #branch: master
+    file: target/release/dclia
+
+env:
+  global:
+    secure: NM+2+/Q6vL39IX2kgbYaRY503Aej08fg+cph5O7d3OPhPtJlSBMvPT9r3nbgS+gfvzfLQSI9vW6rgCaTiBGFZFjFhuxf9YD06XzW8AQnt2If5uTrofmEQEC9EcTvsKKPOjM4judGXSywCZ2NzmZqUrS+oHcIhaeBL1TyDwI32IEqiM0TX3WXABHAIibdJIJ5mq/U4jnsFca3kUoY0q/7u15LUTFTplTjv2r9utGkbUlRzzfEwxSSf8SxLiwrrlJ1VETw2ewNfR0AjrETVl2kJBDwUbfHCT10i9Y9v5+Y2inoWVO4T7GCEMaQAkIcoHt5sBHdDqk+sifrt+D74p3TlPuuYJvP3NA6a92DvC/D5Jxo9rWkQSICTzkAzSZuWGKoc7aqrEYgOpvPQr23r1/s2tCuduRGC4qLiXZG89opFW68WXx/VY2Fpq+Z0RLQWwpckb+BUPIb2tsundoz6VAmISfLshFzI1KQyFHZUheYuv+rSTujBOpBxejlFdjcIUUkJU/idjsi+3TS1WjPox8WNszqjb0JBauJWPfY0qptgIf4O1eocxUxQlA/B2paS37VBKgx2SxyrfLHM9VssCPVc85lkrG1tYR0Vj83Ag4DBS4qes8EUbKgO1ySjniMhtQcg74t+1bwv5eG23+RgmFadM4kSd0dq6lx0QyfoN+IWx0=
