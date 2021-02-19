@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -20,12 +20,15 @@
 * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-use crate::error::Error;
 use serde_derive::{Deserialize, Serialize};
+
+use crate::error::Error;
 
 pub const API_RESPONSE_STATUS_SUCCESS: u32 = 1;
 
-pub fn check_destiny_response_status(status: &DestinyResponseStatus) -> Result<(), Error> {
+pub fn check_destiny_response_status(
+    status: &DestinyResponseStatus,
+) -> Result<(), Error> {
     match status.error_code {
         1 => Ok(()),
         5 => Err(Error::ApiNotAvailableException),

@@ -9,37 +9,48 @@ If you have examples you would like to share you can:
 
 Please provide a summary including any requirements (such as OS or shell environment), and make sure to comment your script.
 
-All examples in hosted in this project are released under an MIT license.
+All examples hosted in this project are released under an MIT license.
 
 ## Examples
 
-### [stats_report](stats_report)
+### session
 
-Bash script that reads crucible stat data from dclics, and outputs a summary (will speak it if running on OS X). Demonstrates how to parse TSV name / value data from dcli apps into bash variables.
+* [session for Bash](session)
+* [session.ps1 for PowerShell](session.ps1)
 
-Requires a modern / updated version of bash to run on OS X. More info [here](https://itnext.io/upgrading-bash-on-macos-7138bd1066ba).
+Bash script (tested on OS X and Linux) that tracks and displays Crucible activity stats per play session.
+
+To use, just start the script when you start playing, and it will update your aggregate stats for your session in realtime.
+
+The script pulls member-id, platform and manifest-path from environment variables (see script for var names). You can also just directly edit the script and add them.
+
+Uses dclitime and dcliah.
 
 ### status_notification
 
-* [status_notification_osx](status_notification_osx)
-* [status_notification_win.ps1](status_notification_win.ps1)
+* [status_notification for Bash](status_notification)
+* [status_notification.ps1 for PowerShell](status_notification.ps1)
 
 Mac OS X Bash and Windows Powershell scripts script which monitors a player's Destiny 2 status, and sends a notification with info on the new status when it changes.
 
 This is particularly useful on Windows when playing Crucible, as it will display a notification as you load into the map, telling you which map you are loading into.
 
-### [mail_report](mail_report)
+### mail_report
 
-Bash script that uses [dclics](https://github.com/mikechambers/dcli/tree/main/src/dclics) to generate and send an email report of weekly Crucible stats. Can be scheduled as part of a crontab job to automate sending.
+Bash script that uses [dcliah](https://github.com/mikechambers/dcli/tree/main/src/dcliah) to generate and send an email report of weekly Crucible stats. Can be scheduled as part of a crontab job to automate sending.
 
 Requires that a sendmail client is [configured](https://blog.travismclarke.com/post/send-email-from-terminal/) on system (although that should be easy to change in the scripts). Requires a newer version of Bash, so you may need to upgrade if running on OS X. Read script for configuration info.
 
 ### Snippets
 
-#### Grab and print a single value
+#### Query the activity database for most kills in a single game
 
-Prints out K/D for all modes for the past month:
 ```
-$ dclics --member-id 4611686018429783292 --platform xbox --mode all --character-id 2305843009264966985 --period month --output tsv | grep kills_deaths_ratio | awk '{print $2}'
-1.5986928
+$ sqlite3 '/home/mesh/.local/share/dcli/dcli.sqlite3' 'select max(kills) as kills from character_activity_stats'
+```
+
+Outputs:
+
+```
+33.0
 ```

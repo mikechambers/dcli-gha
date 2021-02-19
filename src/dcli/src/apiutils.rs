@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -21,3 +21,5 @@
 */
 
 pub const RESOURCE_BASE_URL: &str = "https://www.bungie.net";
+pub const API_BASE_URL: &str = "https://www.bungie.net";
+pub const PGCR_BASE_URL: &str = "https://stats.bungie.net";

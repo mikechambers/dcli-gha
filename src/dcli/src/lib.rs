@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -20,19 +20,19 @@
 * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+pub mod activitystoreinterface;
 pub mod apiclient;
 pub mod apiinterface;
 pub mod apiutils;
+pub mod character;
+pub mod crucible;
 pub mod cruciblestats;
 pub mod emblem;
+pub mod enums;
 pub mod error;
 pub mod manifest;
 pub mod manifestinterface;
-pub mod mode;
-pub mod moment;
 pub mod output;
-pub mod platform;
 pub mod response;
-pub mod standing;
 pub mod statscontainer;
 pub mod utils;

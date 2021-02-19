@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -22,12 +22,13 @@
 
 mod memberidsearch;
 
+use dcli::enums::platform::Platform;
 use dcli::output::Output;
-use dcli::platform::Platform;
-use dcli::utils::{print_error, print_verbose, EXIT_FAILURE, TSV_DELIM, TSV_EOL};
+use dcli::utils::{
+    print_error, print_verbose, EXIT_FAILURE, TSV_DELIM, TSV_EOL,
+};
 use memberidsearch::MemberIdSearch;
 use memberidsearch::Membership;
-
 use structopt::StructOpt;
 
 fn is_valid_steam_id(steam_id: &str) -> bool {
@@ -84,7 +85,11 @@ struct Opt {
     ///
     /// tsv outputs in a tab (\t) seperated format of columns with lines
     /// ending in a new line character (\n).
-    #[structopt(short = "o", long = "output", default_value = "default")]
+    #[structopt(
+        short = "O",
+        long = "output-format",
+        default_value = "default"
+    )]
     output: Output,
 }
 
@@ -107,7 +112,13 @@ async fn main() {
         opt.verbose,
     );
 
-    let member_search = MemberIdSearch::new(opt.verbose);
+    let member_search = match MemberIdSearch::new(opt.verbose) {
+        Ok(e) => e,
+        Err(e) => {
+            print_error("Error initializing API Interface.", e);
+            std::process::exit(EXIT_FAILURE);
+        }
+    };
 
     let membership = match member_search
         .retrieve_member_id(&opt.name, opt.platform)
@@ -154,8 +165,7 @@ async fn main() {
 fn print_tsv(member: &Membership) {
     let default = &"".to_string();
 
-    //todo: clippy is complaining about this but not 100% sure why
-    let n = member.display_name.as_ref().unwrap_or_else(|| default);
+    let n = member.display_name.as_ref().unwrap_or(default);
 
     print!(
         "{d}{delim}{i}{delim}{p}{delim}{pi}{eol}",
@@ -170,8 +180,7 @@ fn print_tsv(member: &Membership) {
 
 fn print_default(member: &Membership) {
     let default = &"".to_string();
-    //todo: clippy is complaining about this but not 100% sure why
-    let n = member.display_name.as_ref().unwrap_or_else(|| default);
+    let n = member.display_name.as_ref().unwrap_or(default);
 
     let col_w = 15;
     println!("{:<0col_w$}{}", "Display Name", n, col_w = col_w);

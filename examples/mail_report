@@ -9,10 +9,8 @@
 # More info at:
 # https://github.com/mikechambers/dcli/
 #
-# This is a pretty simple script / output. You could get more advanced control
-# by passing in '--output tsv' to dclics and then generating the email from the
-# data
-# Requires dclics v0.1.2
+# This is a pretty simple script / output. 
+# Requires dcliah v0.8.0
 
 # (pulling from environment but you can also hardcode)
 EMAIL_ADDRESS=$EMAIL
@@ -20,20 +18,14 @@ EMAIL_ADDRESS=$EMAIL
 # you can get member_id and platform from dclim
 # (here it pulls from environment but you can also hardcode)
 MEMBER_ID=$MEMBER_ID
-
-PLATFORM=xbox
-
-# character_id to retrieve stats for
-# can retrieve character_ids from dclic
-# (here it pulls from environment but you can also hardcode)
-CHARACTER_ID=$CHARACTER_ID
+PLATFORM=$PLATFORM
 
 # modes to generate a report for. options include: all, control, 
 # clash, mayhem, ironbanner, private, rumble, comp, quickplay 
 # and trialsofosiris
-declare -a MODES=("all" "quickplay" "ironbanner" "trialsofosiris" "rumble" "comp" )
+declare -a MODES=("all_pvp" "quickplay" "iron_banner" "trials_of_osiris" "rumble" "pvp_competitive" )
 
-REPORT_START=$(date -v-7d  +"%A, %B %-d, %Y")
+REPORT_START=$(date +"%A, %B %-d, %Y")
 REPORT_END=$(date +"%A, %B %-d, %Y")
 
 SUBJECT="Destiny Crucible Report for week of ${REPORT_START}"
@@ -45,27 +37,27 @@ OUTPUT+="\n"
 echo "Gathering data for report"
 
 # Iterate the string array using for loop
-for mode in ${MODES[@]}; do
+for mode in "${MODES[@]}"; do
 
     echo "Getting data for $mode"
     
     PRETTY_MODE=""
-    if [ "${mode}" == "all" ]
+    if [ "${mode}" == "all_pvp" ]
     then
         PRETTY_MODE="All Matches"
     elif [ "${mode}" == "quickplay" ]
     then
         PRETTY_MODE="Quickplay"
-    elif [ "${mode}" == "ironbanner" ]
+    elif [ "${mode}" == "iron_banner" ]
     then
         PRETTY_MODE="Iron Banner"
-    elif [ "${mode}" == "trialsofosiris" ]
+    elif [ "${mode}" == "trials_of_osiris" ]
     then
         PRETTY_MODE="Trials of Osiris"
     elif [ "${mode}" == "rumble" ]
     then
         PRETTY_MODE="Rumble"
-    elif [ "${mode}" == "comp" ]
+    elif [ "${mode}" == "pvp_competitive" ]
     then
         PRETTY_MODE="Competitive"
     fi
@@ -74,16 +66,16 @@ for mode in ${MODES[@]}; do
     OUTPUT+="************************************************************************************************************\n"
 
     #2>&1 this redirects stderr to stdout so we can capture
-    TMP_OUTPUT=$(dclics --member-id $MEMBER_ID --character-id $CHARACTER_ID --platform $PLATFORM --mode $mode --period reset 2>&1)
+    TMP_OUTPUT=$(dcliah --member-id "$MEMBER_ID" --platform "$PLATFORM" --class all --mode "$mode" --moment week --activity-limit 0 --weapon-count 10 2> /dev/null)
 
     if [ $? -eq 1 ] 
     then
         echo "${TMP_OUTPUT}">&2 #redirect to stderr
-        echo -e "\nError running dclics (see output above). Aborting. Exit code received from command [$?]">&2 #redirect to stderr
+        echo -e "\nError running dcliah (see output above). Aborting. Exit code received from command [$?]">&2 #redirect to stderr
         exit 1
     fi
 
-    if [ "${TMP_OUTPUT}" == "No results found." ]
+    if [ "${TMP_OUTPUT}" == "No activities found" ]
     then
         OUTPUT+="No games played"
         OUTPUT+="\n"
@@ -108,11 +100,8 @@ echo -e "${OUTPUT}\n"
 
 echo "Emailing report to: ${EMAIL_ADDRESS}"
 
-#just wrap in <pre>, so it maintains formatting from dclics output
+#just wrap in <pre>, so it maintains formatting from dcliah output
 BODY="Mime-Version: 1.0\nContent-Type: text/html\n<html><body><pre style=\"font-family: monospace; font-size:medium;\">${OUTPUT}</pre></body></html>"
-
-#mail -s "${SUBJECT}" $EMAIL_ADDRESS <<< "${BODY}"
-#echo -e "$BODY"
 
 (echo "To: ${EMAIL_ADDRESS}"
     echo "Subject: ${SUBJECT}"

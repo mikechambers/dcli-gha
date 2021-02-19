@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -20,25 +20,25 @@
 * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-use structopt::StructOpt;
-
 use dcli::apiinterface::ApiInterface;
+use dcli::character::Characters;
+use dcli::enums::platform::Platform;
 use dcli::error::Error;
 use dcli::output::Output;
-use dcli::platform::Platform;
-use dcli::response::character::CharacterData;
 use dcli::utils::EXIT_FAILURE;
 use dcli::utils::{print_error, print_verbose, repeat_str, TSV_DELIM, TSV_EOL};
+use structopt::StructOpt;
 
 //todo: could move this to apiclient
 async fn retrieve_characters(
     member_id: String,
     platform: Platform,
     verbose: bool,
-) -> Result<Vec<CharacterData>, Error> {
-    let interface = ApiInterface::new(verbose);
+) -> Result<Option<Characters>, Error> {
+    let interface = ApiInterface::new(verbose)?;
 
-    let characters = interface.retrieve_characters(member_id, platform).await?;
+    let characters =
+        interface.retrieve_characters(&member_id, &platform).await?;
 
     Ok(characters)
 }
@@ -86,7 +86,11 @@ struct Opt {
     ///
     /// tsv outputs in a tab (\t) seperated format of name / value pairs with lines
     /// ending in a new line character (\n).
-    #[structopt(short = "o", long = "output", default_value = "default")]
+    #[structopt(
+        short = "O",
+        long = "output-format",
+        default_value = "default"
+    )]
     output: Output,
 }
 
@@ -95,28 +99,34 @@ async fn main() {
     let opt = Opt::from_args();
     print_verbose(&format!("{:#?}", opt), opt.verbose);
 
-    let chars: Vec<CharacterData> =
-        match retrieve_characters(opt.member_id, opt.platform, opt.verbose).await {
-            Ok(e) => e,
+    let chars: Characters =
+        match retrieve_characters(opt.member_id, opt.platform, opt.verbose)
+            .await
+        {
+            Ok(e) => match e {
+                Some(e) => e,
+                None => {
+                    println!("No Characters found for member.");
+                    return;
+                }
+            },
             Err(e) => {
                 print_error("Error retrieving characters from API.", e);
                 std::process::exit(EXIT_FAILURE);
             }
         };
 
-    let char_data = get_char_info(&chars);
-
     match opt.output {
         Output::Default => {
-            print_default(char_data);
+            print_default(&chars);
         }
         Output::Tsv => {
-            print_tsv(char_data);
+            print_tsv(&chars);
         }
     }
 }
 
-fn print_default(char_data: Vec<(CharacterData, String)>) {
+fn print_default(characters: &Characters) {
     let col_w = 12;
     let col_id = 24;
     println!(
@@ -130,54 +140,39 @@ fn print_default(char_data: Vec<(CharacterData, String)>) {
 
     println!("{}", repeat_str("-", col_w * 2 + col_id));
 
-    for p in char_data.iter() {
+    for p in characters.characters.iter() {
+        //we unwrap here because we wont be in loop if there are no items in
+        //characters, and thus last active should always return a reference
+        let label = if p == characters.get_last_active_ref().unwrap() {
+            "LAST ACTIVE"
+        } else {
+            ""
+        };
+
         println!(
             "{:<0col_w$}{:<0col_id$}{:<0col_w$}",
-            p.0.class_type,
-            p.0.id,
-            p.1,
+            p.class_type,
+            p.id,
+            label,
             col_w = col_w,
             col_id = col_id,
         );
     }
 }
 
-fn get_char_info(characters: &[CharacterData]) -> Vec<(CharacterData, String)> {
-    let mut out: Vec<(CharacterData, String)> = Vec::new();
-
-    if characters.is_empty() {
-        return out;
-    }
-
-    let mut most_recent: &CharacterData = &characters[0];
-
-    for c in characters.iter() {
-        if c.date_last_played > most_recent.date_last_played {
-            most_recent = c;
-        }
-    }
-
-    for c in characters.iter() {
-        let status = if most_recent == c {
-            "LAST ACTIVE".to_string()
+fn print_tsv(characters: &Characters) {
+    for p in characters.characters.iter() {
+        let label = if p == characters.get_last_active_ref().unwrap() {
+            "LAST ACTIVE"
         } else {
-            "".to_string()
+            ""
         };
 
-        //note, this would be better as a reference, but need to figure out
-        //how to do it
-        out.push((c.clone(), status));
-    }
-    out
-}
-
-fn print_tsv(char_data: Vec<(CharacterData, String)>) {
-    for p in char_data.iter() {
         print!(
             "{c}{delim}{i}{delim}{s}{eol}",
-            c = p.0.class_type,
-            i = p.0.id,
-            s = p.1,
+            c = p.class_type,
+            i = p.id,
+            s = label,
             delim = TSV_DELIM,
             eol = TSV_EOL
         );

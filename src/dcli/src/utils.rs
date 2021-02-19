@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -20,14 +20,16 @@
 * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-use crate::error::Error;
-use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 use std::env;
 use std::ffi::OsStr;
-use std::path::Path;
-
-use crossterm::{execute, terminal};
 use std::io::{stdout, Write};
+use std::path::Path;
+use std::path::PathBuf;
+
+use chrono::{DateTime, Datelike, Duration, Local, TimeZone, Timelike, Utc};
+use crossterm::{execute, terminal};
+
+use crate::error::Error;
 
 //use chrono::prelude::*;
 
@@ -91,35 +93,46 @@ pub fn print_error(msg: &str, error: Error) {
     eprintln!("       https://github.com/mikechambers/dcli/issues");
 }
 
-pub fn calculate_per_activity_average(value: f32, total_activities: f32) -> f32 {
-    if total_activities == 0.0 {
+pub fn calculate_per_activity_average(
+    value: u32,
+    total_activities: u32,
+) -> f32 {
+    if total_activities == 0 {
         return 0.0;
     }
 
-    value / total_activities
+    value as f32 / total_activities as f32
 }
 
-pub fn calculate_efficiency(kills: f32, deaths: f32, assists: f32) -> f32 {
-    let t = kills + assists;
-    if deaths > 0.0 {
-        t / deaths
+pub fn calculate_efficiency(kills: u32, deaths: u32, assists: u32) -> f32 {
+    let t = (kills + assists) as f32;
+    if deaths > 0 {
+        t / deaths as f32
     } else {
         t
     }
 }
 
-pub fn calculate_kills_deaths_ratio(kills: f32, deaths: f32) -> f32 {
-    if deaths > 0.0 {
-        kills / deaths
+pub fn calculate_kills_deaths_ratio(kills: u32, deaths: u32) -> f32 {
+    let kills = kills as f32;
+    if deaths > 0 {
+        kills / deaths as f32
     } else {
         kills
     }
 }
 
-pub fn calculate_kills_deaths_assists(kills: f32, deaths: f32, assists: f32) -> f32 {
+pub fn calculate_kills_deaths_assists(
+    kills: u32,
+    deaths: u32,
+    assists: u32,
+) -> f32 {
+    let kills = kills as f32;
+    let assists = assists as f32;
+
     let t = kills + (assists / 2.0);
-    if deaths > 0.0 {
-        t / deaths
+    if deaths > 0 {
+        t / deaths as f32
     } else {
         t
     }
@@ -154,30 +167,44 @@ pub fn uppercase_first_char(s: &str) -> String {
     }
 }
 
+pub fn human_date_format(start_time: &DateTime<Utc>) -> String {
+    let local = start_time.with_timezone(&Local);
+    let format_str = if Utc::now() - *start_time > Duration::days(6) {
+        "%B %-d, %Y"
+    } else if local.day() == Local::now().day() {
+        "Today at %-I:%M %p"
+    } else {
+        "%A at %-I:%M %p"
+    };
+
+    format!("{}", local.format(format_str))
+}
+
 //this could use some more work and polish. Add "and" before the last item.
-pub fn human_duration(seconds: f32) -> String {
-    let s = seconds as i64;
-
-    let dt = Utc.ymd(0, 1, 1).and_hms(0, 0, 0) + Duration::seconds(s);
-
-    let y = build_time_str(dt.year(), "year");
+pub fn human_duration(seconds: u32) -> String {
+    let dt =
+        Utc.ymd(0, 1, 1).and_hms(0, 0, 0) + Duration::seconds(seconds as i64);
+    let year = build_time_str(dt.year(), "year");
     let mon = build_time_str(dt.month() as i32 - 1, "month");
-    let d = build_time_str(dt.day() as i32 - 1, "day");
-    let h = build_time_str(dt.hour() as i32, "hour");
+    let day = build_time_str(dt.day() as i32 - 1, "day");
+    let hour = build_time_str(dt.hour() as i32, "hour");
     let min = build_time_str(dt.minute() as i32, "minute");
-    let s = build_time_str(dt.second() as i32, "second");
+    let sec = build_time_str(dt.second() as i32, "second");
+    //collect all items into a vector
+    let t = vec![year, mon, day, hour, min, sec];
 
-    (&format!(
-        "{y} {mon} {d} {h} {min} {s}",
-        y = y,
-        mon = mon,
-        d = d,
-        h = h,
-        min = min,
-        s = s
-    ))
-        .trim()
-        .to_string()
+    //remove empty items
+    let mut t = t
+        .into_iter()
+        .filter(|i| i.trim().chars().count() > 0)
+        .collect::<Vec<String>>();
+
+    //add an add before the last item
+    if t.len() > 1 {
+        t.insert(t.len() - 1, "and".to_string());
+    }
+
+    t.join(" ")
 }
 
 pub fn build_time_str(t: i32, label: &str) -> String {
@@ -223,11 +250,63 @@ pub fn get_last_daily_reset() -> DateTime<Utc> {
     find_previous_moment(past_reset, DAY_IN_SECONDS)
 }
 
-fn find_previous_moment(past_reset: DateTime<Utc>, interval: i64) -> DateTime<Utc> {
+fn find_previous_moment(
+    past_reset: DateTime<Utc>,
+    interval: i64,
+) -> DateTime<Utc> {
     let now: DateTime<Utc> = Utc::now();
 
     //get total seconds between now and the past reset
     //take the mod of that divided by a week in seconds
     //subtract that amount from current date / time to find previous reset
     now - Duration::seconds((now - past_reset).num_seconds() % interval)
+}
+
+pub fn determine_data_dir(dir: Option<PathBuf>) -> Result<PathBuf, Error> {
+    let path = match dir {
+        Some(e) => e,
+        None => {
+            let dld = dirs_next::data_local_dir()
+                .ok_or(Error::SystemDirectoryNotFound)?;
+            dld.join("dcli")
+        }
+    };
+
+    if !path.exists() {
+        std::fs::create_dir_all(&path)?;
+    }
+
+    Ok(path)
+}
+
+pub fn calculate_ratio(a: u32, b: u32) -> f32 {
+    if b == 0 {
+        return 0.0;
+    }
+
+    a as f32 / b as f32
+}
+
+pub fn calculate_avg(total: f32, count: u32) -> f32 {
+    if count == 0 {
+        return 0.0;
+    }
+
+    total / count as f32
+}
+
+pub fn calculate_percent(value: u32, total: u32) -> f32 {
+    if total == 0 {
+        return 0.0;
+    }
+
+    (value as f32 / total as f32) * 100.0
+}
+
+pub fn truncate_ascii_string(input: &str, max_len: usize) -> String {
+    if input.chars().count() <= max_len {
+        return input.to_string();
+    }
+
+    format!("{:.len$}...", input, len = max_len - 3)
 }

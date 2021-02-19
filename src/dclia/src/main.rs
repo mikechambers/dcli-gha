@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -20,23 +20,21 @@
 * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-use structopt::StructOpt;
+use std::path::PathBuf;
 
 use dcli::apiinterface::ApiInterface;
-//use dcli::error::Error;
-use dcli::manifestinterface::ManifestInterface;
-use dcli::mode::Mode;
-use dcli::output::Output;
-use dcli::platform::Platform;
-use dcli::utils::EXIT_FAILURE;
-use dcli::utils::{build_tsv, print_error, print_verbose};
-
 use dcli::manifest::definitions::{
     ActivityDefinitionData, DestinationDefinitionData, PlaceDefinitionData,
 };
+//use dcli::error::Error;
+use dcli::enums::mode::Mode;
+use dcli::enums::platform::Platform;
+use dcli::manifestinterface::ManifestInterface;
+use dcli::output::Output;
 use dcli::response::gpr::CharacterActivitiesData;
-
-use std::path::PathBuf;
+use dcli::utils::EXIT_FAILURE;
+use dcli::utils::{build_tsv, determine_data_dir, print_error, print_verbose};
+use structopt::StructOpt;
 
 const ORBIT_PLACE_HASH: u32 = 2961497387;
 
@@ -73,13 +71,13 @@ struct Opt {
     #[structopt(short = "v", long = "verbose")]
     verbose: bool,
 
-    ///Local path for the Destiny 2 manifest database file.
+    /// Directory where Destiny 2 manifest database file is stored. (optional)
     ///
-    ///This will normally be downloaded using the dclim tool, and stored in a file
-    ///named manifest.sqlite3 (in the manifest directory specified when running
-    ///dclim).
-    #[structopt(short = "P", long = "manifest-path", parse(from_os_str))]
-    manifest_path: PathBuf,
+    /// This will normally be downloaded using the dclim tool, and stored in a file
+    /// named manifest.sqlite3 (in the manifest directory specified when running
+    /// dclim).
+    #[structopt(short = "D", long = "data-dir", parse(from_os_str))]
+    data_dir: Option<PathBuf>,
 
     /// Format for command output
     ///
@@ -87,7 +85,11 @@ struct Opt {
     ///
     /// tsv outputs in a tab (\t) seperated format of name / value pairs with lines
     /// ending in a new line character (\n).
-    #[structopt(short = "o", long = "output", default_value = "default")]
+    #[structopt(
+        short = "O",
+        long = "output-format",
+        default_value = "default"
+    )]
     output: Output,
 }
 
@@ -96,7 +98,21 @@ async fn main() {
     let opt = Opt::from_args();
     print_verbose(&format!("{:#?}", opt), opt.verbose);
 
-    let client = ApiInterface::new(opt.verbose);
+    let data_dir = match determine_data_dir(opt.data_dir) {
+        Ok(e) => e,
+        Err(e) => {
+            print_error("Error initializing manifest directory.", e);
+            std::process::exit(EXIT_FAILURE);
+        }
+    };
+
+    let client = match ApiInterface::new(opt.verbose) {
+        Ok(e) => e,
+        Err(e) => {
+            print_error("Error initializing API Interface", e);
+            std::process::exit(EXIT_FAILURE);
+        }
+    };
 
     let activities_data: Option<CharacterActivitiesData> = match client
         .retrieve_current_activity(opt.member_id, opt.platform)
@@ -124,7 +140,7 @@ async fn main() {
         }
     };
 
-    let mut manifest = match ManifestInterface::new(opt.manifest_path, false).await {
+    let mut manifest = match ManifestInterface::new(&data_dir, false).await {
         Ok(e) => e,
         Err(e) => {
             print_error("Manifest Error", e);
@@ -139,7 +155,7 @@ async fn main() {
         ),
         opt.verbose,
     );
-    let activity_data_m: ActivityDefinitionData = match manifest
+    let activity_data_m: Option<ActivityDefinitionData> = match manifest
         .get_activity_definition(activity_data_a.current_activity_hash)
         .await
     {
@@ -149,6 +165,13 @@ async fn main() {
             std::process::exit(EXIT_FAILURE);
         }
     };
+
+    if activity_data_m.is_none() {
+        println!("Unknown activity. Make sure you have synced the latest version of the manifest using dclim.");
+        return;
+    }
+
+    let activity_data_m = activity_data_m.unwrap();
 
     if activity_data_m.place_hash == ORBIT_PLACE_HASH {
         match opt.output {
@@ -170,7 +193,7 @@ async fn main() {
         ),
         opt.verbose,
     );
-    let place_data_m: PlaceDefinitionData = match manifest
+    let place_data_m: Option<PlaceDefinitionData> = match manifest
         .get_place_definition(activity_data_m.place_hash)
         .await
     {
@@ -181,6 +204,12 @@ async fn main() {
         }
     };
 
+    if place_data_m.is_none() {
+        println!("Unknown location. Make sure you have synced the latest version of the manifest using dclim.");
+        return;
+    }
+    let place_data_m = place_data_m.unwrap();
+
     print_verbose(
         &format!(
             "Getting destination definition data from manifest : {}",
@@ -188,7 +217,7 @@ async fn main() {
         ),
         opt.verbose,
     );
-    let destination_data_m: DestinationDefinitionData = match manifest
+    let destination_data_m: Option<DestinationDefinitionData> = match manifest
         .get_destination_definition(activity_data_m.destination_hash)
         .await
     {
@@ -199,11 +228,20 @@ async fn main() {
         }
     };
 
+    if destination_data_m.is_none() {
+        println!("Unknown destination. Make sure you have synced the latest version of the manifest using dclim.");
+        return;
+    }
+
+    let destination_data_m = destination_data_m.unwrap();
+
     let mut mode = Mode::None;
 
     //lets find out the mode / activity type name
     print_verbose("Determining activity mode", opt.verbose);
-    let activity_type_name: String = match activity_data_a.current_activity_mode_type {
+    let activity_type_name: String = match activity_data_a
+        .current_activity_mode_type
+    {
         // if its set in the API data, we use that
         // this is due to this bug:
         // https://github.com/Bungie-net/api/issues/1341
@@ -221,13 +259,21 @@ async fn main() {
             );
             //otherwise, we go into the manifest to find it
             match manifest
-                .get_activity_type_definition(activity_data_m.activity_type_hash)
+                .get_activity_type_definition(
+                    activity_data_m.activity_type_hash,
+                )
                 .await
             {
-                Ok(e) => e.display_properties.name,
+                Ok(e) => match e {
+                    Some(e) => e.display_properties.name,
+                    None => "Unknown".to_string(),
+                },
                 Err(e) => {
                     print_verbose(
-                        &format!("Activity Mode not found in Manifest : {:?}", e),
+                        &format!(
+                            "Activity Mode not found in Manifest : {:?}",
+                            e
+                        ),
                         opt.verbose,
                     );
                     //Todo: this either means an error, unknown activity, or they are in orbit

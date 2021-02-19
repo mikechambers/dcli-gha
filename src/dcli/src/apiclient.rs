@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -20,10 +20,14 @@
 * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+use reqwest::header::{HeaderMap, HeaderValue, CONNECTION};
+use reqwest::{Client, Url};
+
 use crate::error::Error;
-use crate::response::drs::{check_destiny_response_status, IsDestinyAPIResponse};
+use crate::response::drs::{
+    check_destiny_response_status, IsDestinyAPIResponse,
+};
 use crate::utils::print_verbose;
-use reqwest::Url;
 
 const DESTINY_API_KEY: &str = env!("DESTINY_API_KEY");
 const API_TIMEOUT: u64 = 10; //seconds
@@ -33,11 +37,25 @@ static_assertions::const_assert!(!DESTINY_API_KEY.is_empty());
 
 pub struct ApiClient {
     pub verbose: bool,
+    client: Client,
 }
 
 impl ApiClient {
-    pub fn new(verbose: bool) -> ApiClient {
-        ApiClient { verbose }
+    pub fn new(verbose: bool) -> Result<ApiClient, Error> {
+        let mut headers = HeaderMap::new();
+        headers.insert(CONNECTION, HeaderValue::from_static("keep-alive"));
+        headers.insert(
+            "Keep-Alive",
+            HeaderValue::from_static("timeout=10, max=1000"),
+        );
+        headers.insert("X-API-Key", HeaderValue::from_static(DESTINY_API_KEY));
+
+        let client = Client::builder()
+            .default_headers(headers)
+            .timeout(std::time::Duration::from_secs(API_TIMEOUT))
+            .build()?;
+
+        Ok(ApiClient { client, verbose })
     }
 
     pub async fn call(&self, url: &str) -> Result<reqwest::Response, Error> {
@@ -45,25 +63,27 @@ impl ApiClient {
 
         print_verbose(&format!("{}", url), self.verbose);
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(API_TIMEOUT))
-            .build()?;
-
-        let response = client
+        let response = self
+            .client
             .get(url)
-            .header("X-API-Key", DESTINY_API_KEY)
+            //.header("X-API-Key", DESTINY_API_KEY)
             .send()
             .await?; //this either returns a reqwest::Response for an Error which is returned
 
         Ok(response)
     }
 
-    pub async fn call_and_parse<T: serde::de::DeserializeOwned + IsDestinyAPIResponse>(
+    pub async fn call_and_parse<
+        T: serde::de::DeserializeOwned + IsDestinyAPIResponse,
+    >(
         &self,
         url: &str,
     ) -> Result<T, Error> {
         let body = match self.call(url).await {
-            Ok(e) => e.text().await?,
+            Ok(e) => {
+                //println!("{:?}", e.headers());
+                e.text().await?
+            }
             Err(e) => return Err(e),
         };
 

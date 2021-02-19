@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -21,10 +21,9 @@
 */
 
 use dcli::apiclient::ApiClient;
+use dcli::enums::platform::Platform;
 use dcli::error::Error;
-use dcli::platform::Platform;
 use dcli::response::drs::{DestinyResponseStatus, IsDestinyAPIResponse};
-
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde_derive::{Deserialize, Serialize};
 
@@ -33,10 +32,10 @@ pub struct MemberIdSearch {
 }
 
 impl MemberIdSearch {
-    pub fn new(print_url: bool) -> MemberIdSearch {
-        MemberIdSearch {
-            client: ApiClient::new(print_url),
-        }
+    pub fn new(print_url: bool) -> Result<MemberIdSearch, Error> {
+        let client = ApiClient::new(print_url)?;
+
+        Ok(MemberIdSearch { client })
     }
 
     pub async fn retrieve_member_id_from_steam(
@@ -60,7 +59,7 @@ impl MemberIdSearch {
 
         let m = Membership {
             id: member.membership_id,
-            platform: Platform::from_id(member.membership_type),
+            platform: Platform::from_id(member.membership_type as u32),
             display_name: None,
         };
 
@@ -100,7 +99,7 @@ impl MemberIdSearch {
 
         let m = Membership {
             id: String::from(r_member.membership_id.as_str()),
-            platform: Platform::from_id(r_member.membership_type),
+            platform: Platform::from_id(r_member.membership_type as u32),
             display_name: results[0].display_name.take(), //this is probably not the right way to do this
         };
 

@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -27,8 +27,9 @@
 //If it turns out this becomes unwieldy, then we will break it out, into API
 //and app specific errors
 
-use crate::response::activities::MAX_ACTIVITIES_REQUEST_COUNT;
 use std::fmt::{Display, Formatter, Result};
+
+use crate::response::activities::MAX_ACTIVITIES_REQUEST_COUNT;
 
 #[derive(PartialEq, Debug)]
 pub enum Error {
@@ -56,6 +57,14 @@ pub enum Error {
     ManifestNotSet,
     ManifestItemNotFound { description: String },
     MaxActivitiesRequestCountExceeded,
+    CharacterDataNotFound,
+    SystemDirectoryNotFound,
+    ChronoParse { description: String },
+    UnknownEnumValue,
+    NoCharacters,
+    CharacterDoesNotExist,
+    ActivityNotFound,
+    DateTimePeriodOrder,
 }
 
 impl Display for Error {
@@ -92,11 +101,11 @@ impl Display for Error {
                 "Missing API Key. Set DESTINY_API_KEY environment variable before compiling."
             ),
             Error::ApiNotAvailableException => {
-                write!(f, "The Destiny API is currently not available. (code 5)")
+                write!(f, "The Destiny API is currently not available. Please try again later.")
             },
             Error::PrivacyException => write!(
                 f,
-                "Privacy settings for Bungie account are too restrictive. (code 5)"
+                "Privacy settings for Bungie account are too restrictive."
             ),
             Error::IoFileDoesNotExist { description } => {
                 write!(f, "Expected File does not exist: {}", description)
@@ -113,11 +122,14 @@ impl Display for Error {
             ),
             Error::RequestTimedOut => write!(
                 f,
-                "The API request took too long. Check your network connection and try again. (The API servers may be slow right now)."
+                "The API request took too long. Check your network connection and \
+                 try again. (The API servers may be slow right now)."
             ),
             Error::Request => write!(
                 f,
-                "There was an error during the API request. This often means that we could not reach the Destiny servers. Check the network connection and try again (The API servers might not be available.)."
+                "There was an error during the API request. This often means \
+                that we could not reach the Destiny servers. Check the network \
+                connection and try again (The API servers might not be available.)."
             ),
 
             Error::MaxActivitiesRequestCountExceeded => write!(
@@ -125,6 +137,31 @@ impl Display for Error {
                 "The maximum number of activities ({}) requested was exceeded.",
                 MAX_ACTIVITIES_REQUEST_COUNT
             ),
+            Error::CharacterDataNotFound => write!(
+                f,
+                "Could not find entry in activity data for specified character."
+            ),
+            Error::SystemDirectoryNotFound  => {
+                write!(f, "Could not locate system directory.")
+            },
+            Error::ChronoParse { description } => {
+                write!(f, "Error parsing String to date / time : {}", description)
+            },
+            Error::UnknownEnumValue  => {
+                write!(f, "Could not convert value to enum.")
+            },
+            Error::NoCharacters  => {
+                write!(f, "There are no characters for the member.")
+            },
+            Error::CharacterDoesNotExist  => {
+                write!(f, "Character class does not exist for member.")
+            },
+            Error::ActivityNotFound  => {
+                write!(f, "Could not find activity in data store.")
+            },
+            Error::DateTimePeriodOrder  => {
+                write!(f, "Start date must be before end date.")
+            },
         }
     }
 }
@@ -181,6 +218,14 @@ impl From<sqlx::Error> for Error {
     fn from(err: sqlx::Error) -> Error {
         Error::Database {
             description: format!("sqlx::Error : {:#?}", err),
+        }
+    }
+}
+
+impl From<chrono::format::ParseError> for Error {
+    fn from(err: chrono::format::ParseError) -> Error {
+        Error::ChronoParse {
+            description: format!("chrono::format::ParseError : {:#?}", err),
         }
     }
 }

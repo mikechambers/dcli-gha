@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -22,14 +22,12 @@
 
 mod datetimeformat;
 
-use datetimeformat::DateTimeFormat;
-use dcli::moment::Moment;
-use dcli::output::Output;
-
 use std::str::FromStr;
 
+use datetimeformat::DateTimeFormat;
+use dcli::enums::moment::Moment;
+use dcli::output::Output;
 use dcli::utils::{build_tsv, print_verbose};
-
 use structopt::StructOpt;
 
 //we do a custom parse / validation here so we can reuse Moment enum
@@ -106,7 +104,11 @@ struct Opt {
     ///
     /// tsv outputs in a tab (\t) seperated format of name / value pairs with lines
     /// ending in a new line character (\n).
-    #[structopt(short = "o", long = "output", default_value = "default")]
+    #[structopt(
+        short = "O",
+        long = "output-format",
+        default_value = "default"
+    )]
     output: Output,
 }
 

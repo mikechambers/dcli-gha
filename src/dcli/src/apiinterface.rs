@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -20,34 +20,44 @@
 * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-use crate::apiclient::ApiClient;
-use crate::error::Error;
-use crate::mode::Mode;
-use crate::platform::Platform;
-use crate::response::activities::{ActivitiesResponse, Activity, MAX_ACTIVITIES_REQUEST_COUNT};
-use crate::response::character::CharacterData;
-use crate::response::drs::API_RESPONSE_STATUS_SUCCESS;
-use crate::response::gpr::{CharacterActivitiesData, GetProfileResponse};
-use crate::response::stats::{
-    AllTimePvPStatsResponse, DailyPvPStatsResponse, DailyPvPStatsValuesData, PvpStatsData,
+use std::{
+    collections::HashMap,
+    io::{self, Write},
 };
 
-use crate::utils::Period;
-
 use chrono::{DateTime, Utc};
-use std::io::{self, Write};
-
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+
+use crate::enums::mode::Mode;
+use crate::enums::platform::Platform;
+use crate::error::Error;
+use crate::response::activities::{
+    ActivitiesResponse, Activity, MAX_ACTIVITIES_REQUEST_COUNT,
+};
+use crate::response::drs::API_RESPONSE_STATUS_SUCCESS;
+use crate::response::gpr::{CharacterActivitiesData, GetProfileResponse};
+use crate::response::pgcr::{DestinyPostGameCarnageReportData, PGCRResponse};
+use crate::response::stats::{
+    AllTimePvPStatsResponse, DailyPvPStatsResponse, DailyPvPStatsValuesData,
+    PvpStatsData,
+};
+use crate::utils::Period;
+use crate::{apiclient::ApiClient, crucible::Player};
+use crate::{
+    apiutils::{API_BASE_URL, PGCR_BASE_URL},
+    character::PlayerInfo,
+};
+
+use crate::character::Characters;
 
 pub struct ApiInterface {
     client: ApiClient,
 }
 
 impl ApiInterface {
-    pub fn new(print_url: bool) -> ApiInterface {
-        ApiInterface {
-            client: ApiClient::new(print_url),
-        }
+    pub fn new(print_url: bool) -> Result<ApiInterface, Error> {
+        let client = ApiClient::new(print_url)?;
+        Ok(ApiInterface { client })
 
         //Have an option on to take a manifest, if manifest is avaliable it will use it
         //some methods may require it and will throw errors if its not set
@@ -59,11 +69,12 @@ impl ApiInterface {
         member_id: String,
         platform: Platform,
     ) -> Result<Option<CharacterActivitiesData>, Error> {
-        let url =
-            format!("https://www.bungie.net/Platform/Destiny2/{platform_id}/Profile/{member_id}/?components=204",
-                platform_id = platform.to_id(),
-                member_id=utf8_percent_encode(&member_id, NON_ALPHANUMERIC)
-            );
+        let url = format!(
+            "{base}/Platform/Destiny2/{platform_id}/Profile/{member_id}/?components=204",
+            base = API_BASE_URL,
+            platform_id = platform.to_id(),
+            member_id = utf8_percent_encode(&member_id, NON_ALPHANUMERIC)
+        );
 
         let profile: GetProfileResponse = self
             .client
@@ -109,17 +120,17 @@ impl ApiInterface {
         Ok(current_activity)
     }
 
-    /// Retrieves characters for specified member_id and platform
-    pub async fn retrieve_characters(
+    pub async fn get_player_info(
         &self,
-        member_id: String,
-        platform: Platform,
-    ) -> Result<Vec<CharacterData>, Error> {
-        let url =
-            format!("https://www.bungie.net/Platform/Destiny2/{platform_id}/Profile/{member_id}/?components=200",
-                platform_id = platform.to_id(),
-                member_id=utf8_percent_encode(&member_id, NON_ALPHANUMERIC)
-            );
+        member_id: &str,
+        platform: &Platform,
+    ) -> Result<PlayerInfo, Error> {
+        let url = format!(
+            "{base}/Platform/Destiny2/{platform_id}/Profile/{member_id}/?components=100,200",
+            base = API_BASE_URL,
+            platform_id = platform.to_id(),
+            member_id = utf8_percent_encode(&member_id, NON_ALPHANUMERIC)
+        );
 
         let profile: GetProfileResponse = self
             .client
@@ -130,25 +141,77 @@ impl ApiInterface {
             Some(e) => e,
             None => {
                 return Err(Error::ApiRequest {
-                    description: String::from("No response data from API Call."),
+                    description: String::from(
+                        "No response data from API Call.",
+                    ),
                 })
             }
         };
 
-        let mut characters: Vec<CharacterData> = Vec::new();
+        //characters should never be empty
+        //todo: test with player with no chars created
+        let c = response
+            .characters
+            .unwrap()
+            .data
+            .into_iter()
+            .map(|(_id, m)| m)
+            .collect();
 
-        let r_characters = match response.characters {
-            Some(e) => e,
-            None => {
-                return Ok(characters);
-            }
-        };
+        let characters = Characters::with_characters(c);
 
-        for c in r_characters.data.values() {
-            characters.push(c.clone());
+        //profile should never be empty
+        let user_info = response.profile.unwrap().data.user_info;
+
+        Ok(PlayerInfo {
+            characters,
+            user_info,
+        })
+    }
+
+    /// Retrieves characters for specified member_id and platform
+    pub async fn retrieve_characters(
+        &self,
+        member_id: &str,
+        platform: &Platform,
+    ) -> Result<Option<Characters>, Error> {
+        let player_info = self.get_player_info(member_id, platform).await?;
+
+        Ok(Some(player_info.characters))
+    }
+
+    pub async fn retrieve_combat_ratings(
+        &self,
+        players: &[&Player],
+        mode: &Mode,
+    ) -> Result<HashMap<u64, f32>, Error> {
+        let mut futures = Vec::new();
+        for p in players {
+            let f = self.retrieve_alltime_crucible_stats(
+                &p.member_id,
+                &p.character_id,
+                &p.platform,
+                mode,
+            );
+            futures.push(f);
         }
 
-        Ok(characters)
+        let results = futures::future::join_all(futures).await;
+
+        let mut hash: HashMap<u64, f32> = HashMap::new();
+        for (i, r) in results.iter().enumerate() {
+            let rating = match r {
+                Ok(e) => match e {
+                    Some(e) => e.combat_rating,
+                    None => 0.0,
+                },
+                Err(_e) => 0.0,
+            };
+
+            hash.insert(players[i].calculate_hash(), rating);
+        }
+
+        Ok(hash)
     }
 
     pub async fn retrieve_alltime_crucible_stats(
@@ -160,7 +223,8 @@ impl ApiInterface {
     ) -> Result<Option<PvpStatsData>, Error> {
         //"/Platform/Destiny2/1/Account/$memberId/Character/$characterId/Stats/?modes=$modesString$dateRangeString&periodType=$periodTypeId&groups=1,2,3";
         let url =
-        format!("https://www.bungie.net/Platform/Destiny2/{platform_id}/Account/{member_id}/Character/{character_id}/Stats/?modes={mode_id}&periodType=2&groups=1,2,3",
+        format!("{base}/Platform/Destiny2/{platform_id}/Account/{member_id}/Character/{character_id}/Stats/?modes={mode_id}&periodType=2&groups=1,2,3",
+            base=API_BASE_URL,
             platform_id = platform.to_id(),
             member_id=utf8_percent_encode(&member_id, NON_ALPHANUMERIC),
             character_id=utf8_percent_encode(&character_id, NON_ALPHANUMERIC),
@@ -199,7 +263,8 @@ impl ApiInterface {
 
         //
         let url =
-        format!("https://www.bungie.net/Platform/Destiny2/{platform_id}/Account/{member_id}/Character/{character_id}/Stats/?modes={mode_id}&periodType=1&groups=1,2,3&daystart={day_start}&dayend={day_end}",
+        format!("{base}/Platform/Destiny2/{platform_id}/Account/{member_id}/Character/{character_id}/Stats/?modes={mode_id}&periodType=1&groups=1,2,3&daystart={day_start}&dayend={day_end}",
+            base=API_BASE_URL,
             platform_id = platform.to_id(),
             member_id=utf8_percent_encode(&member_id, NON_ALPHANUMERIC),
             character_id=utf8_percent_encode(&character_id, NON_ALPHANUMERIC),
@@ -267,7 +332,7 @@ impl ApiInterface {
         eprint!("[");
         //TODO: if error occurs on an individual call, retry?
         loop {
-            eprint!("#");
+            eprint!(".");
             io::stderr().flush().unwrap();
 
             // TODO: if we call more pages that there is data, it will return back with no Response
@@ -278,7 +343,14 @@ impl ApiInterface {
             // so assume we are out of data. (maybe compare to whether we have found any items).
             // This would mean we might miss legitimate API errors though.
             let activities = self
-                .retrieve_activities(member_id, character_id, platform, mode, count, page)
+                .retrieve_activities(
+                    member_id,
+                    character_id,
+                    platform,
+                    mode,
+                    count,
+                    page,
+                )
                 .await?;
 
             if activities.is_none() {
@@ -321,6 +393,83 @@ impl ApiInterface {
         Ok(Some(out))
     }
 
+    pub async fn retrieve_activities_since_id(
+        &self,
+        member_id: &str,
+        character_id: &str,
+        platform: &Platform,
+        mode: &Mode,
+        activity_id: i64,
+    ) -> Result<Option<Vec<Activity>>, Error> {
+        let mut out: Vec<Activity> = Vec::new();
+        let mut page = 0;
+        let count = MAX_ACTIVITIES_REQUEST_COUNT;
+
+        eprint!("[");
+        //TODO: if error occurs on an individual call, retry?
+        loop {
+            eprint!(".");
+            io::stderr().flush().unwrap();
+
+            // TODO: if we call more pages that there is data, it will return back with no Response
+            // property. Usually this means an error but in this case, it just means we have
+            // got all of the data. This is only an issue, if they user has a number of activities
+            // divisible by MAX_ACTIVITIES_REQUEST_COUNT.
+            // We could catch the error and see if its because the response header is missing, and if
+            // so assume we are out of data. (maybe compare to whether we have found any items).
+            // This would mean we might miss legitimate API errors though.
+            let activities = self
+                .retrieve_activities(
+                    member_id,
+                    character_id,
+                    platform,
+                    mode,
+                    count,
+                    page,
+                )
+                .await?;
+
+            if activities.is_none() {
+                break;
+            }
+
+            let t: Vec<Activity> = activities.unwrap();
+
+            let len = t.len() as i32;
+
+            if len == 0 {
+                break;
+            }
+
+            let mut should_break = false;
+            for activity in t.into_iter() {
+                if activity.details.instance_id == activity_id {
+                    should_break = true;
+                    break;
+                }
+
+                out.push(activity);
+            }
+
+            if should_break || len < count {
+                break;
+            }
+
+            page += 1;
+
+            //if we try to page past where there is valid data, bungie will return
+            //empty response, which we detect retrieve_activities (and returns None)
+        }
+
+        eprintln!("]");
+
+        if out.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(out))
+    }
+
     pub async fn retrieve_activities(
         &self,
         member_id: &str,
@@ -332,7 +481,8 @@ impl ApiInterface {
     ) -> Result<Option<Vec<Activity>>, Error> {
         //
         let url =
-        format!("https://www.bungie.net/Platform/Destiny2/{platform_id}/Account/{member_id}/Character/{character_id}/Stats/Activities/?mode={mode_id}&count={count}&page={page}",
+        format!("{base}/Platform/Destiny2/{platform_id}/Account/{member_id}/Character/{character_id}/Stats/Activities/?mode={mode_id}&count={count}&page={page}",
+            base=API_BASE_URL,
             platform_id = platform.to_id(),
             member_id=utf8_percent_encode(&member_id, NON_ALPHANUMERIC),
             character_id=utf8_percent_encode(&character_id, NON_ALPHANUMERIC),
@@ -362,7 +512,9 @@ impl ApiInterface {
                     return Ok(None);
                 } else {
                     return Err(Error::ApiRequest {
-                        description: String::from("No response data from API Call."),
+                        description: String::from(
+                            "No response data from API Call.",
+                        ),
                     });
                 }
             }
@@ -372,5 +524,37 @@ impl ApiInterface {
         //let activities: Option<Vec<Activity>> = response.activities;
 
         Ok(activities)
+    }
+
+    pub async fn retrieve_post_game_carnage_report(
+        &self,
+        instance_id: i64,
+    ) -> Result<Option<DestinyPostGameCarnageReportData>, Error> {
+        //TODO: do we need to use baseurls?
+        let url = format!(
+            "{base}/Platform/Destiny2/Stats/PostGameCarnageReport/{instance_id}/",
+            base = PGCR_BASE_URL,
+            instance_id = instance_id,
+        );
+
+        let response: PGCRResponse =
+            self.client.call_and_parse::<PGCRResponse>(&url).await?;
+
+        let data: DestinyPostGameCarnageReportData = match response.response {
+            Some(e) => e,
+            None => {
+                if response.status.error_code == API_RESPONSE_STATUS_SUCCESS {
+                    return Ok(None);
+                } else {
+                    return Err(Error::ApiRequest {
+                        description: String::from(
+                            "No response data from API Call.",
+                        ),
+                    });
+                }
+            }
+        };
+
+        Ok(Some(data))
     }
 }

@@ -1,5 +1,5 @@
 /*
-* Copyright 2020 Mike Chambers
+* Copyright 2021 Mike Chambers
 * https://github.com/mikechambers/dcli
 *
 * Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -20,15 +20,17 @@
 * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
-use crate::mode::Mode;
-use crate::response::character::CharacterData;
-use crate::response::drs::{DestinyResponseStatus, IsDestinyAPIResponse};
-
-use crate::response::utils::str_to_datetime;
-use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use serde_derive::{Deserialize, Serialize};
+
+use crate::enums::mode::Mode;
+use crate::response::character::CharacterData;
+use crate::response::drs::{DestinyResponseStatus, IsDestinyAPIResponse};
+use crate::response::utils::str_to_datetime;
+
+use super::pgcr::UserInfoCard;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GetProfileResponse {
@@ -51,6 +53,19 @@ pub struct ProfileResponse {
 
     #[serde(rename = "characterActivities")]
     pub character_activities: Option<CharacterActivitiesFieldData>,
+
+    pub profile: Option<ProfileData>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ProfileData {
+    pub data: ProfileDetailsData,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ProfileDetailsData {
+    #[serde(rename = "userInfo")]
+    pub user_info: UserInfoCard,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -83,7 +98,8 @@ pub struct CharacterActivitiesData {
     #[serde(rename = "currentActivityModeHash")]
     pub current_activity_mode_hash: u32, //these both point to the same data (0 if not active)
 
-    #[serde(rename = "currentActivityModeType")] //todo: could default this to none / 0
+    #[serde(rename = "currentActivityModeType")]
+    //todo: could default this to none / 0
     pub current_activity_mode_type: Option<Mode>, // (0 if not active)
 
     #[serde(rename = "currentPlaylistActivityHash")]
